@@ -1,0 +1,60 @@
+name: CI/CD JPetStore DevSecOps
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Build Docker Image
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }} .
+
+      - name: Scan Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: http://${{ secrets.SERVER_IP }}:9000
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push to Docker Hub
+        run: |
+          docker tag ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:latest
+
+  deploy:
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to AWS via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:latest
+            sudo docker stop jpetstore || true
+            sudo docker rm jpetstore || true
+            sudo docker run -d --name jpetstore -p 8080:8080 ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:latest
