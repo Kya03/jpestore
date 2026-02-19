@@ -7,31 +7,51 @@ on:
 jobs:
   build-and-scan:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write # Obligatoire pour l'onglet Security de GitHub
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
+      # 1. Build de l'image Docker
       - name: Build Docker Image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }} .
 
-      - name: Scan Image with Trivy
+      # 2. Scan Trivy -> Rapport pour GitHub Security (SARIF)
+      - name: Trivy Scan to GitHub Security
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }}'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
 
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      # 3. Scan Trivy -> Rapport pour SonarQube (JSON)
+      - name: Trivy Scan to SonarQube
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }}'
+          format: 'json'
+          output: 'trivy-results.json'
+
+      # 4. Analyse SonarQube (incluant le rapport Trivy)
       - name: SonarQube Scan
         uses: sonarsource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: http://${{ secrets.SERVER_IP }}:9000
+        with:
+          args: >
+            -Dsonar.externalIssuesReportPaths=trivy-results.json
 
+      # 5. Push sur Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
@@ -41,6 +61,7 @@ jobs:
       - name: Push to Docker Hub
         run: |
           docker tag ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }} ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }}
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:latest
 
   deploy:
