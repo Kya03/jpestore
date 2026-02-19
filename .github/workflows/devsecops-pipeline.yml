@@ -50,7 +50,7 @@ jobs:
           SONAR_HOST_URL: http://${{ secrets.SERVER_IP }}:9000
         with:
           args: >
-            -Dsonar.externalIssuesReportPaths=bom.json
+            -Dsonar.sbom.cyclonedx.reportPath=bom.json
 
       # 5. Push sur Docker Hub
       - name: Login to Docker Hub
