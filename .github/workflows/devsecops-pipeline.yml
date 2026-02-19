@@ -38,9 +38,9 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/jpetstore:${{ github.sha }}'
-          format: 'template'
+          format: 'cyclonedx'
           template: '@/contrib/sonar.tpl' # Utilise le template intégré à Trivy pour Sonar
-          output: 'trivy-sonar.json'
+          output: 'bom.json'
 
       # 4. Analyse SonarQube (incluant le rapport Trivy)
       - name: SonarQube Scan
@@ -50,7 +50,7 @@ jobs:
           SONAR_HOST_URL: http://${{ secrets.SERVER_IP }}:9000
         with:
           args: >
-            -Dsonar.externalIssuesReportPaths=trivy-sonar.json
+            -Dsonar.externalIssuesReportPaths=bom.json
 
       # 5. Push sur Docker Hub
       - name: Login to Docker Hub
